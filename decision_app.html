@@ -1,0 +1,126 @@
+<!doctype html>
+<html lang="ja">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="theme-color" content="#233b60">
+<title>次の行動を決める</title>
+<style>
+:root{color-scheme:light;--navy:#233b60;--bg:#f4f6fa;--line:#dce2eb;--muted:#64748b;--blue:#2f5d9b}
+*{box-sizing:border-box}body{margin:0;background:var(--bg);color:#172033;font:16px/1.5 system-ui,-apple-system,"Noto Sans JP",sans-serif}
+header{background:var(--navy);color:white;padding:22px 18px}header h1{font-size:1.35rem;margin:0 0 4px}header p{margin:0;color:#dce7f7;font-size:.9rem}
+main{max-width:760px;margin:0 auto;padding:14px}.tabs{display:grid;grid-template-columns:repeat(4,1fr);gap:6px;margin-bottom:14px}
+button,select,input,textarea{font:inherit}button{border:0;border-radius:10px;padding:11px 13px;background:var(--blue);color:white;cursor:pointer}button.secondary{background:#e8edf5;color:#233b60}button.danger{background:#fff0f0;color:#a11}button:disabled{opacity:.4;cursor:not-allowed}
+.tabs button{padding:10px 4px;background:#e4eaf3;color:#233b60}.tabs button.active{background:var(--navy);color:white}
+.card{background:white;border:1px solid var(--line);border-radius:16px;padding:16px;margin-bottom:12px}.card h2{font-size:1.08rem;margin:0 0 12px}
+.field{margin:12px 0}.field label{display:block;font-size:.9rem;font-weight:650;margin-bottom:5px}
+input,select,textarea{width:100%;border:1px solid #cbd5e1;border-radius:9px;background:white;padding:10px;color:#172033}
+.row{display:flex;align-items:center;gap:8px}.row>*{min-width:0}.row .grow{flex:1}.muted{color:var(--muted);font-size:.88rem}.result{background:#eef5ff;border:1px solid #bfd5f5;border-radius:14px;padding:24px;text-align:center;margin-top:14px}.result small{color:var(--muted)}.result strong{display:block;font-size:1.8rem;margin-top:8px;overflow-wrap:anywhere}
+.rule-title{font-weight:700}.rule-card{border:1px solid var(--line);border-radius:12px;padding:12px;margin:10px 0}.rule-card details summary{cursor:pointer}.rule-card .field{margin:9px 0}.actions-list .row{margin:8px 0}
+footer{text-align:center;padding:12px 16px 28px;color:var(--muted);font-size:.8rem}
+@media(max-width:480px){main{padding:10px}.card{padding:13px}.tabs{grid-template-columns:repeat(2,1fr)}.row.wrap{flex-wrap:wrap}.row.wrap button{flex:1}}
+</style>
+</head>
+<body>
+<header><h1>次の行動を決める</h1><p>生活状況に合わせたルールベース判定</p></header>
+<main>
+<nav class="tabs" aria-label="メニュー">
+<button data-tab="judge" class="active">判定</button><button data-tab="questions">項目設定</button><button data-tab="rules">ルール設定</button><button data-tab="actions">行動設定</button>
+</nav>
+<section id="app"></section>
+</main>
+<footer>設定はこのブラウザ内に保存されます。ブラウザのデータ消去時には失われる場合があります。</footer>
+<script>
+const defaults=()=>({
+ questions:[
+ {id:"sleep",name:"眠気",options:["低い","普通","強い"]},
+ {id:"fatigue",name:"疲労度",options:["低い","普通","強い"]},
+ {id:"hunger",name:"空腹度",options:["低い","普通","強い"]},
+ {id:"toilet",name:"トイレ",options:["不要","必要"]},
+ {id:"bath",name:"入浴",options:["済み","未"]},
+ {id:"study",name:"勉強の期限",options:["余裕あり","今日中","迫っている"]}
+ ],
+ actions:["勉強","睡眠","休憩","食事","入浴","排泄"],
+ fallback:"休憩",
+ rules:[
+ {id:1,name:"トイレを優先",q1:"toilet",v1:"必要",q2:"",v2:"",action:"排泄"},
+ {id:2,name:"空腹が強い",q1:"hunger",v1:"強い",q2:"",v2:"",action:"食事"},
+ {id:3,name:"眠気と疲労が強い",q1:"sleep",v1:"強い",q2:"fatigue",v2:"強い",action:"睡眠"},
+ {id:4,name:"疲労が強い",q1:"fatigue",v1:"強い",q2:"",v2:"",action:"休憩"},
+ {id:5,name:"入浴が未完了",q1:"bath",v1:"未",q2:"",v2:"",action:"入浴"},
+ {id:6,name:"勉強の期限が迫っている",q1:"study",v1:"迫っている",q2:"",v2:"",action:"勉強"}
+ ]
+});
+let data;
+try{data=JSON.parse(localStorage.getItem("next-action-data"))||defaults()}catch{data=defaults()}
+let tab="judge", answers={}, result="";
+function save(){localStorage.setItem("next-action-data",JSON.stringify(data))}
+function esc(s){return String(s??"").replace(/[&<>"']/g,c=>({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[c]))}
+function options(values,current){return values.map(v=>`<option value="${esc(v)}" ${v===current?"selected":""}>${esc(v)}</option>`).join("")}
+function selectField(label,values,current,attrs=""){return `<div class="field"><label>${esc(label)}</label><select ${attrs}>${options(values,current)}</select></div>`}
+function questionSelectField(label,current,attrs="",allowEmpty=false){const qs=data.questions.map(q=>`<option value="${esc(q.id)}" ${q.id===current?"selected":""}>${esc(q.name)}</option>`).join("");return `<div class="field"><label>${esc(label)}</label><select ${attrs}>${allowEmpty?`<option value="" ${current===""?"selected":""}>（条件なし）</option>`:""}${qs}</select></div>`}
+function render(){
+ document.querySelectorAll("[data-tab]").forEach(b=>b.classList.toggle("active",b.dataset.tab===tab));
+ const root=document.getElementById("app");
+ if(tab==="judge"){
+  root.innerHTML=`<div class="card"><h2>今の状態</h2><p class="muted">各項目を選択して判定します。結果は行動名だけを表示します。</p>
+  ${data.questions.map(q=>selectField(q.name,q.options,answers[q.id]??q.options[0],`data-answer="${esc(q.id)}"`)).join("")}
+  <button id="judgeBtn" style="width:100%">次にやることを決める</button>
+  ${result?`<div class="result"><small>次にやること</small><strong>${esc(result)}</strong></div>`:""}</div>`;
+  root.querySelectorAll("[data-answer]").forEach(s=>s.addEventListener("change",()=>answers[s.dataset.answer]=s.value));
+  document.getElementById("judgeBtn").onclick=()=>{
+   const r=data.rules.find(r=>data.questions.some(q=>q.id===r.q1)&&answers[r.q1]===r.v1&&(!r.q2||(data.questions.some(q=>q.id===r.q2)&&answers[r.q2]===r.v2)));
+   result=(r&&data.actions.includes(r.action))?r.action:data.fallback;render();
+  };
+ } else if(tab==="questions"){
+  root.innerHTML=`<div class="card"><h2>判定項目</h2><p class="muted">選択肢はカンマ区切りで入力します。</p>
+  ${data.questions.map((q,i)=>`<div class="rule-card"><div class="row"><strong class="grow">項目 ${i+1}</strong><button class="danger" data-delq="${esc(q.id)}">削除</button></div>
+  <div class="field"><label>項目名</label><input data-qname="${esc(q.id)}" value="${esc(q.name)}"></div>
+  <div class="field"><label>選択肢</label><input data-qopts="${esc(q.id)}" value="${esc(q.options.join(","))}"></div></div>`).join("")}
+  <button id="addq" style="width:100%">＋ 項目を追加</button></div>`;
+  root.querySelectorAll("[data-qname]").forEach(el=>el.onchange=()=>{data.questions.find(q=>q.id===el.dataset.qname).name=el.value;save()});
+  root.querySelectorAll("[data-qopts]").forEach(el=>el.onchange=()=>{let q=data.questions.find(q=>q.id===el.dataset.qopts);q.options=el.value.split(",").map(s=>s.trim()).filter(Boolean);if(!q.options.length)q.options=["はい","いいえ"];save();render()});
+  root.querySelectorAll("[data-delq]").forEach(el=>el.onclick=()=>{let id=el.dataset.delq;data.questions=data.questions.filter(q=>q.id!==id);data.rules=data.rules.filter(r=>r.q1!==id&&r.q2!==id);delete answers[id];save();render()});
+  document.getElementById("addq").onclick=()=>{data.questions.push({id:"q"+Date.now(),name:"新しい項目",options:["はい","いいえ"]});save();render()};
+ } else if(tab==="rules"){
+  const qOpts=(id,val)=>{let q=data.questions.find(q=>q.id===id);return q?options(q.options,val):""};
+  root.innerHTML=`<div class="card"><h2>判定ルール</h2><p class="muted">上から順に判定し、最初に一致したルールを使います。条件2は任意で、設定した場合は両方一致する必要があります。</p>
+  ${data.rules.map((r,i)=>`<div class="rule-card"><details><summary><span class="rule-title">${i+1}. ${esc(r.name)}</span> — ${esc(r.action)}</summary>
+  <div class="field"><label>ルール名</label><input data-rfield="name" data-id="${r.id}" value="${esc(r.name)}"></div>
+  ${questionSelectField("条件1の項目",r.q1,`data-rfield="q1" data-id="${r.id}"`)}
+  ${selectField("条件1の値",data.questions.find(q=>q.id===r.q1)?.options||[],r.v1,`data-rfield="v1" data-id="${r.id}"`)}
+  ${questionSelectField("条件2の項目（任意）",r.q2,`data-rfield="q2" data-id="${r.id}"`,true)}
+  ${r.q2?selectField("条件2の値",data.questions.find(q=>q.id===r.q2)?.options||[],r.v2,`data-rfield="v2" data-id="${r.id}"`):""}
+  ${selectField("提示する行動",data.actions,r.action,`data-rfield="action" data-id="${r.id}"`)}
+  <div class="row wrap"><button class="secondary" data-up="${r.id}" ${i===0?"disabled":""}>↑ 優先度を上げる</button><button class="secondary" data-down="${r.id}" ${i===data.rules.length-1?"disabled":""}>↓ 下げる</button><button class="danger" data-delr="${r.id}">削除</button></div>
+  </details></div>`).join("")}
+  <button id="addr" style="width:100%">＋ ルールを追加</button></div>`;
+  root.querySelectorAll("[data-rfield]").forEach(el=>el.onchange=()=>{let r=data.rules.find(r=>r.id==el.dataset.id),k=el.dataset.rfield;r[k]=el.value;if(k==="q1"){r.v1=data.questions.find(q=>q.id===r.q1)?.options[0]||"";if(r.q2===r.q1){r.q2="";r.v2=""}}if(k==="q2"){r.v2=data.questions.find(q=>q.id===r.q2)?.options[0]||""}save();render()});
+  root.querySelectorAll("[data-delr]").forEach(el=>el.onclick=()=>{data.rules=data.rules.filter(r=>r.id!=el.dataset.delr);save();render()});
+  root.querySelectorAll("[data-up]").forEach(el=>el.onclick=()=>moveRule(+el.dataset.up,-1));
+  root.querySelectorAll("[data-down]").forEach(el=>el.onclick=()=>moveRule(+el.dataset.down,1));
+  document.getElementById("addr").onclick=()=>{let q=data.questions[0];data.rules.push({id:Date.now(),name:"新しいルール",q1:q?.id||"",v1:q?.options[0]||"",q2:"",v2:"",action:data.actions[0]||""});save();render()};
+ } else {
+  root.innerHTML=`<div class="card"><h2>行動候補</h2><p class="muted">判定結果に表示できる行動です。</p><div class="actions-list">
+  ${data.actions.map((a,i)=>`<div class="row"><input class="grow" data-action="${i}" value="${esc(a)}"><button class="danger" data-dela="${i}" ${data.actions.length<=1?"disabled":""}>削除</button></div>`).join("")}</div>
+  <div class="row" style="margin-top:12px"><input id="newAction" class="grow" placeholder="行動を追加"><button id="addAction">追加</button></div>
+  ${selectField("一致するルールがない場合の行動",data.actions,data.fallback,'id="fallback"')}
+  <hr style="border:0;border-top:1px solid var(--line);margin:18px 0">
+  <h2>設定データ</h2><p class="muted">バックアップをダウンロードしたり、以前の設定を読み込んだりできます。</p>
+  <div class="row wrap"><button id="export" class="secondary">設定を保存（JSON）</button><button id="importBtn" class="secondary">設定を読み込む</button><input id="importFile" type="file" accept="application/json" hidden></div>
+  <p class="muted">端末を変えるときはJSONを保存して、新しい端末で読み込んでください。</p></div>`;
+  root.querySelectorAll("[data-action]").forEach(el=>el.onchange=()=>{let i=+el.dataset.action,old=data.actions[i],v=el.value.trim();if(!v){el.value=old;return}data.actions[i]=v;data.rules.forEach(r=>{if(r.action===old)r.action=v});if(data.fallback===old)data.fallback=v;save();render()});
+  root.querySelectorAll("[data-dela]").forEach(el=>el.onclick=()=>{let old=data.actions[+el.dataset.dela];data.actions.splice(+el.dataset.dela,1);data.rules=data.rules.filter(r=>r.action!==old);if(data.fallback===old)data.fallback=data.actions[0];save();render()});
+  document.getElementById("addAction").onclick=()=>{let el=document.getElementById("newAction"),v=el.value.trim();if(v&&!data.actions.includes(v)){data.actions.push(v);save();render()}};
+  document.getElementById("fallback").onchange=e=>{data.fallback=e.target.value;save()};
+  document.getElementById("export").onclick=()=>{let blob=new Blob([JSON.stringify(data,null,2)],{type:"application/json"}),url=URL.createObjectURL(blob),a=document.createElement("a");a.href=url;a.download="decision-rules.json";a.click();URL.revokeObjectURL(url)};
+  document.getElementById("importBtn").onclick=()=>document.getElementById("importFile").click();
+  document.getElementById("importFile").onchange=async e=>{try{let f=e.target.files[0];if(!f)return;let parsed=JSON.parse(await f.text());if(!Array.isArray(parsed.questions)||!Array.isArray(parsed.rules)||!Array.isArray(parsed.actions))throw Error();data=parsed;save();render();alert("設定を読み込みました")}catch{alert("設定ファイルを読み込めませんでした")}};
+ }
+}
+function moveRule(id,delta){let i=data.rules.findIndex(r=>r.id===id),j=i+delta;if(j<0||j>=data.rules.length)return;[data.rules[i],data.rules[j]]=[data.rules[j],data.rules[i]];save();render()}
+document.querySelectorAll("[data-tab]").forEach(b=>b.onclick=()=>{tab=b.dataset.tab;result="";render()});
+render();
+</script>
+</body>
+</html>
